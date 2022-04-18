@@ -2,10 +2,15 @@
 *.o
 *.a
 *.so
+*.swp
+*.swo
 
 # Folders
 _obj
 _test
+
+client/client
+server/server
 
 # Architecture specific extensions/prefixes
 *.[568vq]

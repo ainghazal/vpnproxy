@@ -2,9 +2,6 @@
 
 A simple UDP Proxy Server in Golang.
 
-## Features
-- [x] one source, multi target based on copy.
-
 ## Build
 * docker: `docker build -t udpproxy .`
 * `go build main.go -o udpproxy`
