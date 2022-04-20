@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"net"
 	"os"
 	"strings"
@@ -51,6 +52,7 @@ func main() {
 	defer pc.Close()
 
 	for {
+		// TODO keep connection map
 		remoteConn, err := net.DialTCP("tcp", nil, targetAddr)
 		if err != nil {
 			log.WithError(err).Fatal("Could not connect to target address:", opts.Target)
@@ -61,41 +63,50 @@ func main() {
 }
 
 func doProxy(remote net.Conn, local net.PacketConn) {
-	// we defer copy remote (tcp) -> local (udp)
+	// copy remote (tcp) -> local (udp)
 	go func() {
+		bufLen := make([]byte, 2)
 		for {
-			// Read TCP socket from remote
-			b := make([]byte, opts.Buffer)
-			n, err := remote.Read(b[:])
-			// Write the packet's contents back to the UDP client.
-			n, err = local.WriteTo(b[:n], localAddr)
+			// Simple framing:
+			// Read 2 bytes from TCP stream, update bufLenlen
+			n, err := remote.Read(bufLen)
+			if err != nil {
+				log.WithError(err).Error("Could not read len from local TCP connection")
+			}
+			l := binary.BigEndian.Uint16(bufLen)
+
+			// Read l bytes from remote TCP socket
+			b := make([]byte, l)
+			n, err = remote.Read(b[:])
+			// Write the payload to the local UDP port
+			n, err = local.WriteTo(b[:], localAddr)
 			if err != nil {
 				log.Println("error writing")
 			}
-			/*
-				if err != nil {
-					doneChan <- err
-					return
-				}
-			*/
 
-			log.Printf("packet-written: bytes=%d to=%s\n", n, localAddr.String())
+			if n != 0 {
+				log.Printf("packet-written: bytes=%d to=%s\n", n, localAddr.String())
+			}
 		}
 	}()
 
-	// now we loop-copy local (udp) -> remote (tcp)
+	// copy local (udp) -> remote (tcp)
 	for {
 		b := make([]byte, opts.Buffer)
 		n, addr, err := local.ReadFrom(b)
-		localAddr = addr
 
 		if err != nil {
 			log.WithError(err).Error("Could not receive a packet")
 			return
 		}
-
+		localAddr = addr
 		log.WithField("addr", addr.String()).WithField("bytes", n).Info("Packet received")
-		if _, err := remote.Write(b[0:n]); err != nil {
+
+		l := make([]byte, 2)
+		binary.BigEndian.PutUint16(l, uint16(n))
+		p := append(l, b[0:n]...)
+		log.Printf("payload: %x\n", p)
+		if _, err := remote.Write(p); err != nil {
 			log.WithError(err).Warn("Could not forward packet.")
 		}
 	}
